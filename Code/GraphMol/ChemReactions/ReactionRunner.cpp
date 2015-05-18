@@ -175,6 +175,7 @@ namespace RDKit {
           res->setAtomBookmark(newAtom,mapNum);
           // now clear the molAtomMapNumber property so that it doesn't
           // end up in the products (this was bug 3140490):
+          newAtom->setProp("templateAtomNum", mapNum); //mefix - retaining template numbers
           newAtom->clearProp(common_properties::molAtomMapNumber);
         }
 
@@ -253,6 +254,8 @@ namespace RDKit {
 		std::map<unsigned int,std::vector<unsigned int> > reactProdAtomMap;
 		std::map<unsigned int,unsigned int> prodReactAtomMap;
 		std::map<unsigned int,unsigned int> prodAtomBondMap;
+		std::map<unsigned int,std::vector<unsigned int> > reactantTemplateBonds; //mefix
+		std::map<unsigned int,std::vector<unsigned int> > productTemplateBonds; //mefix
     };
 
     ReactantProductAtomMapping* getAtomMappingsReactantProduct(const MatchVectType &match,
@@ -286,6 +289,37 @@ namespace RDKit {
       	  mapping->skippedAtoms[match[i].second]=1;
         }
       }
+      
+      ROMol::BOND_ITER_PAIR bondItP = product->getEdges();//mefix
+      while(bondItP.first != bondItP.second ){ //mefix
+        BOND_SPTR pBond=(*product)[*(bondItP.first)];
+        ++bondItP.first;
+        const Atom* starting = product->getAtomWithIdx(pBond->getBeginAtomIdx());
+        const Atom* ending = product->getAtomWithIdx(pBond->getEndAtomIdx());
+        int beginnum;
+        int endnum;
+        if(starting->getPropIfPresent("templateAtomNum", beginnum) &&
+           ending->getPropIfPresent("templateAtomNum", endnum)){
+          mapping->productTemplateBonds[beginnum].push_back(endnum);
+          mapping->productTemplateBonds[endnum].push_back(beginnum);
+        }
+      } //mefix end
+      ROMol::BOND_ITER_PAIR bondItR = reactantTemplate.getEdges();//mefix
+      while(bondItR.first != bondItR.second ){ //mefix
+        BOND_SPTR rBond=reactantTemplate[*(bondItR.first)];
+        ++bondItR.first;
+        const Atom* starting = reactantTemplate.getAtomWithIdx(rBond->getBeginAtomIdx());
+        const Atom* ending = reactantTemplate.getAtomWithIdx(rBond->getEndAtomIdx());
+        int beginnum;
+        int endnum;
+        if(starting->getPropIfPresent(common_properties::molAtomMapNumber, beginnum) &&
+           ending->getPropIfPresent(common_properties::molAtomMapNumber, endnum)){
+          mapping->reactantTemplateBonds[beginnum].push_back(endnum);
+          mapping->reactantTemplateBonds[endnum].push_back(beginnum);
+        }
+      } //mefix end
+      
+      
       return mapping;
     }
 
@@ -381,6 +415,8 @@ namespace RDKit {
          productAtom->hasProp(common_properties::molInversionFlag)){
         checkProductChirality(reactantAtom.getChiralTag(), productAtom);
       }
+      int hidnum; //mefix - retain user atom numbering
+      if(reactantAtom.getPropIfPresent("userAtomNum", hidnum)) { productAtom->setProp("userAtomNum", hidnum); }
     }
 
     void setNewProductBond(const Bond& origB, RWMOL_SPTR product,
@@ -469,6 +505,36 @@ namespace RDKit {
                 const Bond *origB=reactant.getBondBetweenAtoms(lreactIdx,*nbrIdx);
                 addMissingProductBonds(*origB, product,mapping);
               }
+              // mefix - rebuilding bonds not included in substrate nor product template
+              else {
+                int beginnum;
+                int endnum;
+                int beginProdIdx;
+                int endProdIdx;
+                std::vector<unsigned> prodBeginIdxs = mapping->reactProdAtomMap[lreactIdx];
+                std::vector<unsigned> prodEndIdxs = mapping->reactProdAtomMap[*nbrIdx];
+                for(unsigned i = 0; i < prodBeginIdxs.size(); i++){
+                  beginProdIdx = prodBeginIdxs.at(i);
+                  endProdIdx = prodEndIdxs.at(i);
+                }
+                if(product->getAtomWithIdx(beginProdIdx)->getPropIfPresent("templateAtomNum", beginnum) &&
+                   product->getAtomWithIdx(endProdIdx)->getPropIfPresent("templateAtomNum", endnum)) {
+                  if(std::find(mapping->reactantTemplateBonds[beginnum].begin(), mapping->reactantTemplateBonds[beginnum].end(), endnum) != (mapping->reactantTemplateBonds[beginnum].end())) {
+                    //bond reported in substrate, will be copied if needed
+                  }
+                  else {
+                    //bond not reported in substrate template, copy only if not reported in product also
+                    if(std::find(mapping->productTemplateBonds[beginnum].begin(), mapping->productTemplateBonds[beginnum].end(), endnum) != (mapping->productTemplateBonds[beginnum].end())) {
+                      //bond reported in product template, already here
+                    }
+                    else {
+                      //bond missing both in product and substrate template
+                      const Bond *origB=reactant.getBondBetweenAtoms(lreactIdx,*nbrIdx);
+                      addMissingProductBonds(*origB, product,mapping);
+                    }
+                  }
+                }
+              } //mefix end
             }
             else if(mapping->reactProdAtomMap.find(*nbrIdx)!= mapping->reactProdAtomMap.end()){
               // case 2, the neighbor has been added and we just need to set a bond to it:
