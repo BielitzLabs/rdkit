@@ -586,7 +586,10 @@ namespace RDKit {
         ROMol::ADJ_ITER nbrIdx,endNbrs;
         boost::tie(nbrIdx,endNbrs) = product->getAtomNeighbors(productAtom);
         while(nbrIdx != endNbrs){
-          if(mapping->prodReactAtomMap.find(*nbrIdx) == mapping->prodReactAtomMap.end()){
+	  const Bond *rBond=reactant.getBondBetweenAtoms(reactantAtom.getIdx(),mapping->prodReactAtomMap[*nbrIdx]); //mefix
+	  //mefix - substrates and templates may be composed of multiple molecules
+	  //so existence of atom in product does not mean that bond is still intact
+          if((mapping->prodReactAtomMap.find(*nbrIdx) == mapping->prodReactAtomMap.end()) || rBond == 0){ //mefix
             ++nUnknown;
             // if there's more than one bond in the product that doesn't correspond to
             // anything in the reactant, we're also doomed
@@ -595,7 +598,7 @@ namespace RDKit {
             pOrder.push_back(-1);
           }
           else {
-            const Bond *rBond=reactant.getBondBetweenAtoms(reactantAtom.getIdx(),mapping->prodReactAtomMap[*nbrIdx]);
+            //const Bond *rBond=reactant.getBondBetweenAtoms(reactantAtom.getIdx(),mapping->prodReactAtomMap[*nbrIdx]);
             CHECK_INVARIANT(rBond,"expected reactant bond not found");
             pOrder.push_back(rBond->getIdx());
           }
